@@ -1,7 +1,6 @@
 import logging
 
 import requests
-from cashaddress import convert as cashaddress
 from decimal import Decimal
 
 from bitcash.network import currency_to_satoshi
@@ -98,33 +97,39 @@ class InsightAPI:
         return True if r.status_code == 200 else False
 
 
-class CashExplorerBitcoinDotComAPI(InsightAPI):
+class BitcoreAPI(InsightAPI):
     """
-    cashexplorer.bitcoin.com
-    No testnet, sadly. Also uses legacy addresses only.
+    api.bitcore.io
     """
-    MAIN_ENDPOINT = 'https://cashexplorer.bitcoin.com/api/'
-    MAIN_ADDRESS_API = MAIN_ENDPOINT + 'addr/{}'
+    MAIN_ENDPOINT = 'https://api.bitcore.io/api/BCH/mainnet/'
+    MAIN_ADDRESS_API = MAIN_ENDPOINT + 'address/{}'
     MAIN_BALANCE_API = MAIN_ADDRESS_API + '/balance'
     MAIN_UNSPENT_API = MAIN_ADDRESS_API + '/utxo'
     MAIN_TX_PUSH_API = MAIN_ENDPOINT + 'tx/send'
     MAIN_TX_API = MAIN_ENDPOINT + 'tx/{}'
     MAIN_TX_AMOUNT_API = MAIN_TX_API
+    TEST_ENDPOINT = 'https://api.bitcore.io/api/BCH/testnet/'
+    TEST_ADDRESS_API = TEST_ENDPOINT + 'address/{}'
+    TEST_BALANCE_API = TEST_ADDRESS_API + '/balance'
+    TEST_UNSPENT_API = TEST_ADDRESS_API + '/utxo'
+    TEST_TX_PUSH_API = TEST_ENDPOINT + 'tx/send'
+    TEST_TX_API = TEST_ENDPOINT + 'tx/{}'
+    TEST_TX_AMOUNT_API = TEST_TX_API
     TX_PUSH_PARAM = 'rawtx'
 
     @classmethod
     def get_balance(cls, address):
-        # As of 2018-05-16, cashexplorer.bitcoin.com only supports legacy addresses.
-        address = cashaddress.to_legacy_address(address)
+        # Only works with cashaddr, without bitcoincash:
+        # Will still give a 200 and an empty balance if you add it though, blegh.
+        address = address.split(':')[1]
         r = requests.get(cls.MAIN_BALANCE_API.format(address), timeout=DEFAULT_TIMEOUT)
         if r.status_code != 200:  # pragma: no cover
             raise ConnectionError
-        return r.json()
+        return r.json()['balance']
 
     @classmethod
     def get_transactions(cls, address):
-        # As of 2018-05-16, cashexplorer.bitcoin.com only supports legacy addresses.
-        address = cashaddress.to_legacy_address(address)
+        address = address.split(':')[1]
         r = requests.get(cls.MAIN_ADDRESS_API.format(address), timeout=DEFAULT_TIMEOUT)
         if r.status_code != 200:  # pragma: no cover
             raise ConnectionError
@@ -132,9 +137,41 @@ class CashExplorerBitcoinDotComAPI(InsightAPI):
 
     @classmethod
     def get_unspent(cls, address):
-        # As of 2018-05-16, cashexplorer.bitcoin.com only supports legacy addresses.
-        address = cashaddress.to_legacy_address(address)
+        address = address.split(':')[1]
         r = requests.get(cls.MAIN_UNSPENT_API.format(address), timeout=DEFAULT_TIMEOUT)
+        if r.status_code != 200:  # pragma: no cover
+            raise ConnectionError
+        return [
+            Unspent(currency_to_satoshi(tx['amount'], 'bch'),
+                    tx['confirmations'],
+                    tx['scriptPubKey'],
+                    tx['txid'],
+                    tx['vout'])
+            for tx in r.json()
+        ]
+
+    @classmethod
+    def get_balance_testnet(cls, address):
+        # Only works with cashaddr, without bitcoincash:
+        # Will still give a 200 and an empty balance if you add it though, blegh.
+        address = address.split(':')[1]
+        r = requests.get(cls.TEST_BALANCE_API.format(address), timeout=DEFAULT_TIMEOUT)
+        if r.status_code != 200:  # pragma: no cover
+            raise ConnectionError
+        return r.json()['balance']
+
+    @classmethod
+    def get_transactions_test(cls, address):
+        address = address.split(':')[1]
+        r = requests.get(cls.TEST_ADDRESS_API.format(address), timeout=DEFAULT_TIMEOUT)
+        if r.status_code != 200:  # pragma: no cover
+            raise ConnectionError
+        return r.json()['transactions']
+
+    @classmethod
+    def get_unspent(cls, address):
+        address = address.split(':')[1]
+        r = requests.get(cls.TEST_UNSPENT_API.format(address), timeout=DEFAULT_TIMEOUT)
         if r.status_code != 200:  # pragma: no cover
             raise ConnectionError
         return [
@@ -247,22 +284,23 @@ class NetworkAPI:
     IGNORED_ERRORS = (ConnectionError,
                       requests.exceptions.ConnectionError,
                       requests.exceptions.Timeout,
+                      requests.exceptions.HTTPError,
                       requests.exceptions.ReadTimeout)
 
-    GET_BALANCE_MAIN = [CashExplorerBitcoinDotComAPI.get_balance,
+    GET_BALANCE_MAIN = [BitcoreAPI.get_balance,
                         BlockdozerAPI.get_balance]
-    GET_TRANSACTIONS_MAIN = [CashExplorerBitcoinDotComAPI.get_transactions,
+    GET_TRANSACTIONS_MAIN = [BitcoreAPI.get_transactions,
                              BlockdozerAPI.get_transactions]
-    GET_UNSPENT_MAIN = [CashExplorerBitcoinDotComAPI.get_unspent,
+    GET_UNSPENT_MAIN = [BitcoreAPI.get_unspent,
                         BlockdozerAPI.get_unspent]
-    BROADCAST_TX_MAIN = [CashExplorerBitcoinDotComAPI.broadcast_tx,
+    BROADCAST_TX_MAIN = [BitcoreAPI.broadcast_tx,
                          BlockdozerAPI.broadcast_tx]
-    GET_TX_MAIN = [CashExplorerBitcoinDotComAPI.get_transaction,
+    GET_TX_MAIN = [BitcoreAPI.get_transaction,
                    BlockdozerAPI.get_transaction]
-    GET_TX_AMOUNT_MAIN = [CashExplorerBitcoinDotComAPI.get_tx_amount,
+    GET_TX_AMOUNT_MAIN = [BitcoreAPI.get_tx_amount,
                           BlockdozerAPI.get_tx_amount]
 
-    GET_BALANCE_TEST = [BlockdozerAPI.get_balance_testnet]
+    GET_BALANCE_TEST = [BitcoreAPI.get_balance_testnet, BlockdozerAPI.get_balance_testnet]
     GET_TRANSACTIONS_TEST = [BlockdozerAPI.get_transactions_testnet]
     GET_UNSPENT_TEST = [BlockdozerAPI.get_unspent_testnet]
     BROADCAST_TX_TEST = [BlockdozerAPI.broadcast_tx_testnet]
